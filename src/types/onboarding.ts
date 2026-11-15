@@ -3,7 +3,7 @@ import { UserRole } from '../types';
 export interface ProfileRecord {
   uid: string;
   role: UserRole;
-  phoneNumber: string;
+  phoneNumber?: string;
   fullName: string;
   email: string;
   photoUrl?: string;
@@ -95,7 +95,6 @@ export interface FullUserAccount {
 export interface OnboardingDraft {
   // Step 1: Personal
   fullName: string;
-  phoneNumber: string;
   email: string;
   photoUrl: string;
   dateOfBirth: string;

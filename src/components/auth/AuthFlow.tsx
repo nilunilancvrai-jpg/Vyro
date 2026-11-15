@@ -5,6 +5,7 @@ import { UserRole } from '../../types';
 import { FullUserAccount } from '../../types/onboarding';
 import {
   clearPendingAuthRole,
+  ensureInitialProfileForNewUser,
   getPendingAuthRole,
   resolveAuthenticatedAccount,
   setPendingAuthRole,
@@ -12,18 +13,19 @@ import {
 } from '../../services/authService';
 import { WelcomeView } from './WelcomeView';
 import { AccountTypeView } from './AccountTypeView';
-import { PhoneAuthView } from './PhoneAuthView';
+import { GoogleAuthView } from './GoogleAuthView';
 import { OnboardingWizard } from './OnboardingWizard';
 
 interface AuthFlowProps {
   existingFirebaseUser: User | null;
   existingAccount: FullUserAccount | null;
-  initialScreen?: 'welcome' | 'role' | 'phone';
+  initialScreen?: 'welcome' | 'role' | 'google';
   initialRole?: UserRole;
   onAuthComplete: (user: User, account: FullUserAccount) => void;
+  onResolveMismatch?: (user: User, account: FullUserAccount) => void;
 }
 
-type AuthScreen = 'welcome' | 'role' | 'phone' | 'onboarding';
+type AuthScreen = 'welcome' | 'role' | 'google' | 'onboarding';
 
 export const AuthFlow: React.FC<AuthFlowProps> = ({
   existingFirebaseUser,
@@ -31,24 +33,47 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
   initialScreen: requestedInitialScreen,
   initialRole: requestedInitialRole,
   onAuthComplete,
+  onResolveMismatch,
 }) => {
+  const pendingRole = getPendingAuthRole();
+  const hasInitialRoleMismatch = Boolean(
+    existingFirebaseUser &&
+      existingAccount &&
+      pendingRole &&
+      existingAccount.profile.role !== pendingRole
+  );
   const needsOnboarding = Boolean(
-    existingFirebaseUser && (!existingAccount || !existingAccount.profile.onboardingCompleted)
+    existingFirebaseUser &&
+      existingAccount &&
+      !existingAccount.profile.onboardingCompleted &&
+      !hasInitialRoleMismatch
   );
 
-  const initialScreen: AuthScreen = needsOnboarding
+  const initialScreen: AuthScreen = hasInitialRoleMismatch
+    ? 'google'
+    : needsOnboarding
     ? 'onboarding'
     : requestedInitialScreen || 'welcome';
 
   const [screen, setScreen] = useState<AuthScreen>(initialScreen);
   const [selectedRole, setSelectedRole] = useState<UserRole>(
-    existingAccount?.profile.role || requestedInitialRole || getPendingAuthRole() || 'retailer'
+    pendingRole || existingAccount?.profile.role || requestedInitialRole || 'retailer'
   );
   const [authUser, setAuthUser] = useState<User | null>(existingFirebaseUser);
-  const [verifiedPhone, setVerifiedPhone] = useState<string>(
-    existingAccount?.profile.phoneNumber || existingFirebaseUser?.phoneNumber || ''
-  );
   const [loadedAccount, setLoadedAccount] = useState<FullUserAccount | null>(existingAccount);
+  const [roleMismatchAccount, setRoleMismatchAccount] = useState<{
+    firebaseUser: User;
+    account: FullUserAccount;
+    attemptedRole: UserRole;
+  } | null>(
+    hasInitialRoleMismatch && existingFirebaseUser && existingAccount && pendingRole
+      ? {
+          firebaseUser: existingFirebaseUser,
+          account: existingAccount,
+          attemptedRole: pendingRole,
+        }
+      : null
+  );
   const [isLoadingAccount, setIsLoadingAccount] = useState<boolean>(false);
   const [flowError, setFlowError] = useState<string | null>(null);
 
@@ -56,69 +81,121 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     if (existingFirebaseUser) {
       setAuthUser(existingFirebaseUser);
       setLoadedAccount(existingAccount);
-      setVerifiedPhone((prev) => existingAccount?.profile.phoneNumber || existingFirebaseUser.phoneNumber || prev);
-      if (existingAccount?.profile.role) {
-        setSelectedRole(existingAccount.profile.role);
+
+      const currentPending = getPendingAuthRole();
+      if (existingAccount && currentPending && existingAccount.profile.role !== currentPending) {
+        setSelectedRole(currentPending);
+        setRoleMismatchAccount({
+          firebaseUser: existingFirebaseUser,
+          account: existingAccount,
+          attemptedRole: currentPending,
+        });
+        setScreen('google');
+        return;
       }
-      if (!existingAccount || !existingAccount.profile.onboardingCompleted) {
+
+      if (existingAccount && !existingAccount.profile.onboardingCompleted) {
+        setRoleMismatchAccount(null);
+        setSelectedRole(existingAccount.profile.role);
         setScreen('onboarding');
       }
     } else {
       setAuthUser(null);
       setLoadedAccount(null);
+      setRoleMismatchAccount(null);
     }
   }, [existingFirebaseUser, existingAccount]);
 
   const handleRoleChosenForAuth = (role: UserRole) => {
     setSelectedRole(role);
     setPendingAuthRole(role);
+    setRoleMismatchAccount(null);
     setFlowError(null);
-    setScreen('phone');
+    setScreen('google');
   };
 
-  // Shared post-auth handler for BOTH Phone OTP and Google Sign-In
-  const handleAuthenticated = async (user: User, phoneNumber: string) => {
+  const handleGoogleAuthenticated = async (user: User) => {
     setFlowError(null);
     setIsLoadingAccount(true);
     try {
-      // 1. Verify Firebase ID token with VYRO backend & load Firestore business registration status
-      const account = await resolveAuthenticatedAccount(user);
+      const roleForAuth = getPendingAuthRole() || selectedRole;
+
+      // 1. Verify Google ID token with VYRO backend & check existing Firestore profile
+      let account = await resolveAuthenticatedAccount(user);
+
+      // 2. New user -> create initial profile permanently bound to selectedRole
+      if (!account) {
+        account = await ensureInitialProfileForNewUser(user, roleForAuth);
+      }
+
       setAuthUser(user);
-      setVerifiedPhone(phoneNumber);
       setLoadedAccount(account);
 
-      if (account) {
-        // Permanently enforce registered account role from backend/Firestore
-        const permanentRole = account.profile.role;
-        setSelectedRole(permanentRole);
-
-        if (account.profile.onboardingCompleted) {
-          clearPendingAuthRole();
-          onAuthComplete(user, account);
-          return;
-        }
-        // Incomplete business registration -> resume OnboardingWizard
-        setScreen('onboarding');
-      } else {
-        // New user -> preserve chosen role and go to business registration
-        setScreen('onboarding');
+      // 3. Existing user with different registered role -> block and require registered role
+      if (account.profile.role !== roleForAuth) {
+        setRoleMismatchAccount({
+          firebaseUser: user,
+          account,
+          attemptedRole: roleForAuth,
+        });
+        setScreen('google');
+        return;
       }
+
+      setRoleMismatchAccount(null);
+      setSelectedRole(account.profile.role);
+
+      if (account.profile.onboardingCompleted) {
+        clearPendingAuthRole();
+        onAuthComplete(user, account);
+        return;
+      }
+
+      setScreen('onboarding');
     } catch (err) {
       setFlowError(
         err instanceof Error
           ? err.message
-          : 'Could not verify your account session. Please try again.'
+          : 'Could not verify your Google account session. Please try again.'
       );
     } finally {
       setIsLoadingAccount(false);
     }
   };
 
+  const handleContinueWithRegisteredRole = (user: User, account: FullUserAccount) => {
+    clearPendingAuthRole();
+    setRoleMismatchAccount(null);
+    setSelectedRole(account.profile.role);
+    setAuthUser(user);
+    setLoadedAccount(account);
+
+    if (account.profile.onboardingCompleted) {
+      if (onResolveMismatch) {
+        onResolveMismatch(user, account);
+      } else {
+        onAuthComplete(user, account);
+      }
+      return;
+    }
+
+    setScreen('onboarding');
+  };
+
+  const handleSignOutAndReset = async () => {
+    await signOutAccount();
+    setAuthUser(null);
+    setLoadedAccount(null);
+    setRoleMismatchAccount(null);
+    setFlowError(null);
+    setScreen('role');
+  };
+
   const handleSignOutFromOnboarding = async () => {
     await signOutAccount();
     setAuthUser(null);
     setLoadedAccount(null);
-    setVerifiedPhone('');
+    setRoleMismatchAccount(null);
     setScreen('welcome');
   };
 
@@ -126,8 +203,8 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
     return (
       <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center p-6 font-['Plus_Jakarta_Sans',sans-serif]">
         <Loader2 className="w-8 h-8 text-[#1769E0] animate-spin mb-3" />
-        <p className="text-sm font-bold text-[#102A56]">Verifying your VYRO account...</p>
-        <p className="text-xs text-slate-500 mt-1">Checking role permissions and onboarding status</p>
+        <p className="text-sm font-bold text-[#102A56]">Verifying your Google account...</p>
+        <p className="text-xs text-slate-500 mt-1">Checking Firestore profile and assigned role permissions</p>
       </div>
     );
   }
@@ -166,11 +243,21 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
         />
       )}
 
-      {screen === 'phone' && (
-        <PhoneAuthView
+      {screen === 'google' && (
+        <GoogleAuthView
           selectedRole={selectedRole}
+          roleMismatchAccount={roleMismatchAccount}
           onBackToRole={() => setScreen('role')}
-          onAuthenticated={handleAuthenticated}
+          onAuthenticated={handleGoogleAuthenticated}
+          onContinueWithRegisteredRole={handleContinueWithRegisteredRole}
+          onSignOutAndSwitchAccount={async () => {
+            await signOutAccount();
+            setPendingAuthRole(selectedRole);
+            setAuthUser(null);
+            setLoadedAccount(null);
+            setRoleMismatchAccount(null);
+            setFlowError(null);
+          }}
         />
       )}
 
@@ -178,7 +265,6 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({
         <OnboardingWizard
           firebaseUser={authUser}
           role={loadedAccount?.profile.role || selectedRole}
-          initialPhone={verifiedPhone}
           existingAccount={loadedAccount}
           onCompleted={(completedAccount) => {
             clearPendingAuthRole();

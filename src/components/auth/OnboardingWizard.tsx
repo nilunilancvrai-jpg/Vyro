@@ -26,7 +26,6 @@ import {
   maskPan,
   validateGstin,
   validateIfsc,
-  validateMobileDigits,
   validatePan,
   validatePincode,
 } from '../../data/indianAddressData';
@@ -44,7 +43,6 @@ import { VyroLogo } from '../VyroLogo';
 interface OnboardingWizardProps {
   firebaseUser: User;
   role: UserRole;
-  initialPhone: string;
   existingAccount: FullUserAccount | null;
   onCompleted: (account: FullUserAccount) => void;
   onSignOut: () => Promise<void>;
@@ -61,7 +59,6 @@ const STEPS = [
 function buildInitialDraft(
   firebaseUser: User,
   role: UserRole,
-  initialPhone: string,
   existing: FullUserAccount | null
 ): OnboardingDraft {
   const defaultState = 'Karnataka';
@@ -69,13 +66,8 @@ function buildInitialDraft(
 
   return {
     fullName: existing?.profile.fullName || firebaseUser.displayName || '',
-    phoneNumber:
-      existing?.profile.phoneNumber ||
-      firebaseUser.phoneNumber ||
-      initialPhone ||
-      '',
     email: existing?.profile.email || firebaseUser.email || '',
-    photoUrl: existing?.profile.photoUrl || '',
+    photoUrl: existing?.profile.photoUrl || firebaseUser.photoURL || '',
     dateOfBirth: existing?.profile.dateOfBirth || '',
     gender: existing?.profile.gender || '',
 
@@ -130,7 +122,6 @@ function buildInitialDraft(
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   firebaseUser,
   role,
-  initialPhone,
   existingAccount,
   onCompleted,
   onSignOut,
@@ -142,14 +133,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const [currentStep, setCurrentStep] = useState<number>(initialStep);
   const [accountSnapshot, setAccountSnapshot] = useState<FullUserAccount | null>(existingAccount);
   const [draft, setDraft] = useState<OnboardingDraft>(() =>
-    buildInitialDraft(firebaseUser, role, initialPhone, existingAccount)
+    buildInitialDraft(firebaseUser, role, existingAccount)
   );
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isCompletedView, setIsCompletedView] = useState<boolean>(false);
-
-  const hasVerifiedPhone = Boolean(firebaseUser.phoneNumber);
 
   const handlePhotoUpload = async (
     file: File | undefined,
@@ -179,17 +168,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
       errors.email = 'Enter a valid business or personal email address.';
     }
 
-    let normalizedPhone = (firebaseUser.phoneNumber || draft.phoneNumber).trim();
-    if (!hasVerifiedPhone) {
-      const digitsOnly = normalizedPhone.replace(/^\+91/, '').replace(/\D/g, '');
-      const phoneErr = validateMobileDigits('+91', digitsOnly);
-      if (phoneErr) {
-        errors.phoneNumber = phoneErr;
-      } else {
-        normalizedPhone = `+91${digitsOnly}`;
-      }
-    }
-
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       return;
@@ -198,12 +176,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     setFieldErrors({});
     setIsSaving(true);
     try {
-      const updatedDraft = { ...draft, phoneNumber: normalizedPhone };
-      setDraft(updatedDraft);
       const savedProfile = await saveStep1Personal(
         firebaseUser,
         role,
-        updatedDraft,
+        draft,
         accountSnapshot?.profile || null
       );
       setAccountSnapshot((prev) => ({
@@ -554,7 +530,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 Owner / Authorized Representative Details
               </h1>
               <p className="text-xs text-slate-600">
-                Your mobile number and assigned <strong className="capitalize">{role}</strong> role are permanently
+                Your verified Google identity and assigned <strong className="capitalize">{role}</strong> role are permanently
                 linked to this account.
               </p>
             </div>
@@ -604,47 +580,22 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Verified Mobile Number <span className="text-red-600">*</span>
+                  Verified Google Email <span className="text-red-600">*</span>
                 </label>
-                {hasVerifiedPhone ? (
-                  <div className="px-3.5 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl font-mono tabular-nums font-bold text-emerald-800 flex items-center justify-between">
-                    <span>{firebaseUser.phoneNumber}</span>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                {firebaseUser.email ? (
+                  <div className="px-3.5 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl font-semibold text-emerald-800 flex items-center justify-between gap-2">
+                    <span className="truncate">{firebaseUser.email}</span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   </div>
                 ) : (
-                  <div className="flex items-center">
-                    <span className="px-3 py-2.5 bg-slate-100 border border-r-0 border-slate-200 rounded-l-xl font-mono font-bold text-slate-700">
-                      +91
-                    </span>
-                    <input
-                      type="tel"
-                      inputMode="numeric"
-                      maxLength={10}
-                      value={draft.phoneNumber.replace(/^\+91/, '')}
-                      onChange={(e) =>
-                        setDraft({ ...draft, phoneNumber: `+91${e.target.value.replace(/\D/g, '')}` })
-                      }
-                      placeholder="9845023145"
-                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-r-xl font-mono tabular-nums font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1769E0]"
-                    />
-                  </div>
+                  <input
+                    type="email"
+                    value={draft.email}
+                    onChange={(e) => setDraft({ ...draft, email: e.target.value })}
+                    placeholder="name@business.in"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1769E0]"
+                  />
                 )}
-                {fieldErrors.phoneNumber && (
-                  <p className="text-[11px] text-red-600 mt-1">{fieldErrors.phoneNumber}</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Email Address <span className="text-red-600">*</span>
-                </label>
-                <input
-                  type="email"
-                  value={draft.email}
-                  onChange={(e) => setDraft({ ...draft, email: e.target.value })}
-                  placeholder="name@business.in"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1769E0]"
-                />
                 {fieldErrors.email && <p className="text-[11px] text-red-600 mt-1">{fieldErrors.email}</p>}
               </div>
 
@@ -1334,11 +1285,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                   <strong className="text-slate-900">{draft.fullName}</strong>
                 </p>
                 <p>
-                  <span className="text-slate-500">Mobile:</span>{' '}
-                  <strong className="font-mono text-slate-900">{draft.phoneNumber}</strong>
-                </p>
-                <p>
-                  <span className="text-slate-500">Email:</span>{' '}
+                  <span className="text-slate-500">Google Email:</span>{' '}
                   <strong className="text-slate-900">{draft.email}</strong>
                 </p>
                 <p>

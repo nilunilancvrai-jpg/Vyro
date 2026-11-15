@@ -9,9 +9,7 @@
     "start": "node server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit",
-    "emulators:auth": "firebase emulators:start --only auth",
-    "dev:emulator": "VITE_USE_FIREBASE_AUTH_EMULATOR=true FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 tsx server.ts"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",

@@ -15,9 +15,8 @@ interface LoginPageProps {
 }
 
 /**
- * Legacy role-selection entry point updated so selecting Retailer or Wholesaler
- * ALWAYS navigates to Firebase Mobile OTP / Google Authentication first and
- * NEVER bypasses authentication to open a dashboard directly.
+ * Role-selection entry point ensuring selecting Retailer or Wholesaler
+ * always navigates to Google Sign-In first and never bypasses authentication.
  */
 export const LoginPage: React.FC<LoginPageProps> = ({
   existingFirebaseUser = null,
@@ -41,7 +40,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       <AuthFlow
         existingFirebaseUser={existingFirebaseUser}
         existingAccount={existingAccount}
-        initialScreen="phone"
+        initialScreen="google"
         initialRole={selectedRoleForAuth}
         onAuthComplete={(user, account) => {
           onAuthComplete?.(user, account);
@@ -75,7 +74,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   What type of account do you have?
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Select your role to continue to Mobile OTP or Google Sign-In
+                  Select your role to continue with Google Sign-In
                 </p>
               </div>
             </div>
@@ -108,7 +107,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       For Kirana stores, supermarkets &amp; retail merchants buying wholesale stock.
                     </p>
                     <div className="mt-2.5 flex items-center gap-1.5 text-[11px] font-bold text-[#1769E0]">
-                      <span>Continue to Mobile Authentication</span>
+                      <span>Continue with Google</span>
                       <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
                     </div>
                   </div>
@@ -142,7 +141,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       For Stockists, APMC distributors &amp; bulk suppliers managing inventory and orders.
                     </p>
                     <div className="mt-2.5 flex items-center gap-1.5 text-[11px] font-bold text-[#0EA5A4]">
-                      <span>Continue to Mobile Authentication</span>
+                      <span>Continue with Google</span>
                       <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
                     </div>
                   </div>
@@ -151,7 +150,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
 
             <div className="text-center text-[11px] text-slate-400 font-medium pt-1">
-              Firebase Mobile OTP or Google authentication is required before accessing your dashboard.
+              Firebase Google Sign-In is required before accessing your dashboard.
             </div>
           </div>
         </div>

@@ -61,7 +61,6 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   // Editable Draft State synchronized with Firestore Account
   const [draft, setDraft] = useState<OnboardingDraft>(() => ({
     fullName: account.profile.fullName,
-    phoneNumber: account.profile.phoneNumber,
     email: account.profile.email,
     photoUrl: account.profile.photoUrl || '',
     dateOfBirth: account.profile.dateOfBirth || '',
@@ -349,7 +348,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               <span aria-hidden="true"> · </span>
               <span className="capitalize font-semibold text-[#1769E0]">{role} Account</span>
               <span aria-hidden="true"> · </span>
-              <span className="font-mono">{account.profile.phoneNumber}</span>
+              <span>{account.profile.email}</span>
             </p>
           </div>
         </div>
@@ -447,12 +446,12 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Registered Mobile Number (Locked)</label>
+              <label className="block font-semibold text-slate-700 mb-1">Verified Google Account</label>
               <input
                 type="text"
                 disabled
-                value={account.profile.phoneNumber}
-                className="w-full px-3.5 py-2.5 bg-slate-100 border border-slate-200 rounded-xl font-mono text-slate-600"
+                value={account.profile.email}
+                className="w-full px-3.5 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-slate-600"
               />
             </div>
 
@@ -835,8 +834,8 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           <div className="space-y-3">
             <label className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 cursor-pointer">
               <div>
-                <p className="font-bold text-slate-900">SMS Order Updates</p>
-                <p className="text-slate-500">Receive dispatch and delivery alerts on your verified mobile.</p>
+                <p className="font-bold text-slate-900">In-App Order Updates</p>
+                <p className="text-slate-500">Receive real-time dispatch and delivery status alerts in VYRO.</p>
               </div>
               <input
                 type="checkbox"

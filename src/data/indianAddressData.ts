@@ -1,18 +1,3 @@
-export interface CountryCodeOption {
-  code: string;
-  country: string;
-  flag: string;
-  minDigits: number;
-  maxDigits: number;
-}
-
-export const COUNTRY_CODES: CountryCodeOption[] = [
-  { code: '+91', country: 'India', flag: 'IN', minDigits: 10, maxDigits: 10 },
-  { code: '+971', country: 'UAE', flag: 'AE', minDigits: 9, maxDigits: 9 },
-  { code: '+65', country: 'Singapore', flag: 'SG', minDigits: 8, maxDigits: 8 },
-  { code: '+44', country: 'UK', flag: 'GB', minDigits: 10, maxDigits: 10 },
-  { code: '+1', country: 'USA / Canada', flag: 'US', minDigits: 10, maxDigits: 10 },
-];
 
 export const INDIAN_STATES_AND_UTS: { name: string; type: 'State' | 'UT'; districts: string[] }[] = [
   { name: 'Andhra Pradesh', type: 'State', districts: ['Visakhapatnam', 'Vijayawada (NTR)', 'Guntur', 'Tirupati', 'Kurnool', 'Nellore', 'Kakinada', 'Anantapur'] },
@@ -80,26 +65,6 @@ export const B2B_BUSINESS_CATEGORIES = [
   'Personal Care & Cosmetics',
   'Multi-Category General Merchandise',
 ];
-
-export function validateMobileDigits(countryCode: string, rawDigits: string): string | null {
-  const digits = rawDigits.replace(/\D/g, '');
-  if (countryCode === '+91') {
-    if (digits.length !== 10) {
-      return 'Enter a valid 10-digit Indian mobile number.';
-    }
-    if (!/^[6-9][0-9]{9}$/.test(digits)) {
-      return 'Indian mobile numbers must start with 6, 7, 8, or 9.';
-    }
-    return null;
-  }
-  const opt = COUNTRY_CODES.find((c) => c.code === countryCode);
-  const min = opt?.minDigits ?? 7;
-  const max = opt?.maxDigits ?? 14;
-  if (digits.length < min || digits.length > max) {
-    return `Enter a valid ${min === max ? min : `${min}-${max}`}-digit mobile number.`;
-  }
-  return null;
-}
 
 export function validatePincode(pin: string): boolean {
   return /^[1-9][0-9]{5}$/.test(pin.trim());

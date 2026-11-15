@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, Store, Building2, ShieldCheck, CheckCircle2, Smartphone } from 'lucide-react';
+import { ArrowRight, Store, Building2, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { UserRole } from '../../types';
 import { VyroLogo } from '../VyroLogo';
 
@@ -39,7 +39,7 @@ export const WelcomeView: React.FC<WelcomeViewProps> = ({
               onClick={onContinueWithMobile}
               className="px-4 py-2 bg-[#102A56] hover:bg-[#1769E0] text-white text-xs sm:text-sm font-semibold rounded-xl transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              Continue with Mobile
+              Sign in with Google
             </button>
           </div>
         </div>
@@ -64,25 +64,24 @@ export const WelcomeView: React.FC<WelcomeViewProps> = ({
 
               <p className="text-base text-slate-600 leading-relaxed max-w-xl">
                 VYRO links APMC distributors and bulk wholesalers directly with neighbourhood kirana stores and
-                supermarkets. Authenticate with your mobile number to manage procurement, live shelf inventory, and
+                supermarkets. Sign in with your Google account to manage procurement, live shelf inventory, and
                 real-time profit analytics.
               </p>
 
               <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
                 <button
                   type="button"
-                  id="welcome-continue-mobile-btn"
+                  id="welcome-continue-btn"
                   onClick={onContinueWithMobile}
                   className="px-6 py-3.5 bg-[#1769E0] hover:bg-[#102A56] text-white text-sm font-bold rounded-xl transition-colors flex items-center justify-center gap-2.5 shadow-sm cursor-pointer whitespace-nowrap"
                 >
-                  <Smartphone className="w-4 h-4" />
-                  <span>Continue with Mobile Number</span>
+                  <span>Continue with Google</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
 
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 pt-1">
-                <span>SMS OTP Verified</span>
+                <span>Google Account Verified</span>
                 <span aria-hidden="true">·</span>
                 <span>GSTIN &amp; APMC Ready</span>
                 <span aria-hidden="true">·</span>
@@ -181,10 +180,10 @@ export const WelcomeView: React.FC<WelcomeViewProps> = ({
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-[#102A56] font-bold text-sm">
               <ShieldCheck className="w-4 h-4 text-[#1769E0]" />
-              <span>Real SMS OTP Login</span>
+              <span>Verified Google Sign-In</span>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Provider-verified 6-digit OTP authentication with session token checks on every API call.
+              Firebase Google authentication with verified session token checks on every API call.
             </p>
           </div>
 

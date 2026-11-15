@@ -13,10 +13,7 @@ service cloud.firestore {
     }
 
     function isVerifiedUser() {
-      return isSignedIn() && (
-        request.auth.token.phone_number != null ||
-        request.auth.token.email_verified == true
-      );
+      return isSignedIn() && request.auth.token.email_verified == true;
     }
 
     function isOwner(uid) {
@@ -42,7 +39,7 @@ service cloud.firestore {
     // Entity Validation Blueprints
     function isValidProfile(data, uid) {
       return data.keys().hasAll([
-          'uid', 'role', 'phoneNumber', 'fullName', 'email',
+          'uid', 'role', 'fullName', 'email',
           'onboardingCompleted', 'onboardingStep', 'accountStatus',
           'createdAt', 'updatedAt'
         ])
@@ -54,10 +51,9 @@ service cloud.firestore {
         ])
         && data.uid is string && data.uid == uid && data.uid == request.auth.uid
         && data.role in ['retailer', 'wholesaler']
-        && data.phoneNumber is string && data.phoneNumber.size() >= 10 && data.phoneNumber.size() <= 20
-        && data.phoneNumber.matches('^\\+[1-9][0-9]{7,14}$')
+        && (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 20))
         && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120
-        && data.email is string && data.email.size() <= 160
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
         && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 500000))
         && (!('dateOfBirth' in data) || (data.dateOfBirth is string && data.dateOfBirth.size() <= 20))
         && (!('gender' in data) || (data.gender is string && data.gender in ['', 'male', 'female', 'other', 'prefer_not_to_say']))
@@ -66,15 +62,6 @@ service cloud.firestore {
         && data.accountStatus in ['active', 'pending_deletion']
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
-    }
-
-    function isValidPhoneRegistry(data, phoneHash) {
-      return data.keys().hasAll(['phoneHash', 'uid', 'role', 'createdAt'])
-        && data.keys().hasOnly(['phoneHash', 'uid', 'role', 'createdAt'])
-        && data.phoneHash is string && data.phoneHash == phoneHash && data.phoneHash.size() >= 16 && data.phoneHash.size() <= 128
-        && data.uid is string && data.uid == request.auth.uid
-        && data.role in ['retailer', 'wholesaler']
-        && data.createdAt is timestamp;
     }
 
     function isValidBusiness(data, uid) {
@@ -225,24 +212,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // 2. Unique Phone Registry
-    match /phone_registry/{phoneHash} {
-      allow get: if isValidId(phoneHash)
-        && isVerifiedUser()
-        && (resource == null || resource.data.uid == request.auth.uid);
-      allow list: if false;
-      allow create: if isValidId(phoneHash)
-        && isVerifiedUser()
-        && isValidPhoneRegistry(incoming(), phoneHash)
-        && incoming().createdAt == request.time
-        && (
-          exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) ||
-          existsAfter(/databases/$(database)/documents/profiles/$(request.auth.uid))
-        );
-      allow update, delete: if false;
-    }
-
-    // 3. Businesses (1:1 Private Business Details)
+    // 2. Businesses (1:1 Private Business Details)
     match /businesses/{uid} {
       allow get: if isValidId(uid) && isOwner(uid);
       allow list: if false;

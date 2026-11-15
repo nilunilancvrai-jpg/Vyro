@@ -5,6 +5,7 @@ import { vyroStore } from './services/store';
 import { auth, testFirestoreConnection } from './lib/firebase';
 import {
   clearPendingAuthRole,
+  getPendingAuthRole,
   resolveAuthenticatedAccount,
   signOutAccount,
 } from './services/authService';
@@ -115,9 +116,20 @@ export default function App() {
 
       try {
         const account = await resolveAuthenticatedAccount(user);
+        const pendingRole = getPendingAuthRole();
+
         userAccountRef.current = account;
         setFirebaseUser(user);
         setUserAccount(account);
+
+        // If an existing user selected a different role before Google Sign-In,
+        // keep them in AuthFlow so the role-mismatch warning is displayed and never auto-redirect silently.
+        if (account && pendingRole && account.profile.role !== pendingRole) {
+          vyroStore.logout();
+          setCurrentRoute('/auth');
+          syncBrowserUrl('/auth', true);
+          return;
+        }
 
         if (account && account.profile.onboardingCompleted) {
           clearPendingAuthRole();
@@ -132,10 +144,13 @@ export default function App() {
           const nextRoute = isAllowedPath ? requestedPath : roleHome;
           setCurrentRoute(nextRoute);
           syncBrowserUrl(nextRoute, true);
-        } else {
+        } else if (account && !account.profile.onboardingCompleted) {
           vyroStore.logout();
           setCurrentRoute('/onboarding');
           syncBrowserUrl('/onboarding', true);
+        } else {
+          // Brand-new Google user whose initial Firestore profile is being initialized by AuthFlow
+          vyroStore.logout();
         }
       } catch {
         userAccountRef.current = null;
@@ -261,6 +276,7 @@ export default function App() {
         existingFirebaseUser={firebaseUser}
         existingAccount={userAccount}
         onAuthComplete={handleAuthComplete}
+        onResolveMismatch={handleAuthComplete}
       />
     );
   }

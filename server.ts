@@ -8,24 +8,7 @@ import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
 import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
 
 const isProduction = process.env.NODE_ENV === 'production';
-if (!isProduction) {
-  dotenv.config({ path: '.env.local' });
-}
 dotenv.config();
-
-// Hard safety guard: production must never trust unsigned Auth Emulator tokens,
-// and development may only target a loopback emulator host.
-if (isProduction) {
-  delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
-} else if (process.env.FIREBASE_AUTH_EMULATOR_HOST) {
-  const emulatorHost = process.env.FIREBASE_AUTH_EMULATOR_HOST.trim();
-  const isLocalEmulatorHost = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(emulatorHost);
-  if (!isLocalEmulatorHost) {
-    delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
-  } else {
-    process.env.FIREBASE_AUTH_EMULATOR_HOST = emulatorHost;
-  }
-}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -116,7 +99,6 @@ const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
 const PINCODE_REGEX = /^[1-9][0-9]{5}$/;
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
-const PHONE_REGEX = /^\+[1-9][0-9]{7,14}$/;
 
 async function startServer() {
   const app = express();
@@ -134,7 +116,6 @@ async function startServer() {
     const decoded = req.user!;
     res.json({
       uid: decoded.uid,
-      phoneNumber: decoded.phone_number || null,
       email: decoded.email || null,
       emailVerified: Boolean(decoded.email_verified),
       provider: decoded.firebase?.sign_in_provider || 'unknown',
@@ -187,10 +168,6 @@ async function startServer() {
 
     if (!body.fullName || String(body.fullName).trim().length < 2) {
       errors.fullName = 'Full legal name is required (minimum 2 characters).';
-    }
-
-    if (!body.phoneNumber || !PHONE_REGEX.test(String(body.phoneNumber).trim())) {
-      errors.phoneNumber = 'Valid E.164 mobile number is required (e.g. +919845023145).';
     }
 
     if (!body.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body.email).trim())) {

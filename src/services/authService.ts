@@ -1,11 +1,4 @@
-import {
-  ConfirmationResult,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
-  signInWithPopup,
-  signOut,
-  User,
-} from 'firebase/auth';
+import { signInWithPopup, signOut, User } from 'firebase/auth';
 import {
   doc,
   getDoc,
@@ -16,11 +9,9 @@ import {
 } from 'firebase/firestore';
 import {
   auth,
-  authEmulatorUrl,
   db,
   googleAuthProvider,
   handleFirestoreError,
-  isAuthEmulatorEnabled,
   OperationType,
 } from '../lib/firebase';
 import { UserRole } from '../types';
@@ -40,275 +31,62 @@ export interface AuthErrorGuidance {
   needsConsoleConfig?: boolean;
 }
 
-async function sha256Hex(input: string): Promise<string> {
-  const data = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-export function isRecaptchaAlreadyRenderedError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err ?? '');
-  return msg.toLowerCase().includes('already been rendered');
-}
-
 export function mapFirebaseAuthError(err: unknown): AuthErrorGuidance {
   const errorObj = err as { code?: string; message?: string };
   const code = errorObj?.code || 'unknown';
 
-  if (isRecaptchaAlreadyRenderedError(err)) {
-    return {
-      code: 'recaptcha-already-rendered',
-      message: 'Security verification was reset cleanly. Please tap Send 6-Digit OTP again.',
-    };
-  }
-
   switch (code) {
-    case 'auth/invalid-phone-number':
-      return { code, message: 'The mobile number format is invalid. Please include country code +91 and 10 digits.' };
-    case 'auth/missing-phone-number':
-      return { code, message: 'Please enter your mobile number to receive an OTP.' };
-    case 'auth/invalid-verification-code':
-      return { code, message: 'Incorrect 6-digit OTP. Please check the SMS and try again.' };
-    case 'auth/code-expired':
-      return { code, message: 'This OTP has expired. Please request a new OTP.' };
-    case 'auth/too-many-requests':
-      return { code, message: 'Too many OTP attempts. Please wait a minute before trying again.' };
-    case 'auth/quota-exceeded':
+    case 'auth/popup-closed-by-user':
       return {
         code,
-        message: 'SMS OTP daily quota exceeded in Firebase Authentication. Use a configured Firebase test number or check project SMS quota.',
-        needsConsoleConfig: true,
+        message: 'Google sign-in popup was closed before completing authentication. Please try again.',
+      };
+    case 'auth/popup-blocked':
+      return {
+        code,
+        message: 'Your browser blocked the Google sign-in popup. Please allow popups for this site and retry.',
+      };
+    case 'auth/cancelled-popup-request':
+      return {
+        code,
+        message: 'Previous Google sign-in attempt was cancelled. Please click Continue with Google once.',
+      };
+    case 'auth/account-exists-with-different-credential':
+      return {
+        code,
+        message: 'An account already exists with this email under different sign-in credentials.',
       };
     case 'auth/operation-not-allowed':
       return {
         code,
-        message: 'Phone Authentication is not enabled yet in Firebase Console (Authentication -> Sign-in method -> Phone).',
-        needsConsoleConfig: true,
-      };
-    case 'auth/billing-not-enabled':
-      return {
-        code,
-        message: 'Firebase SMS requires Blaze billing or configured Firebase Test Phone Numbers in Firebase Console.',
+        message: 'Google Sign-In is not enabled in Firebase Authentication settings.',
         needsConsoleConfig: true,
       };
     case 'auth/unauthorized-domain':
       return {
         code,
-        message: 'This preview domain is not yet added to Firebase Authorized Domains in Authentication Settings.',
+        message: 'This domain is not yet listed under Firebase Authentication Authorized Domains.',
         needsConsoleConfig: true,
-      };
-    case 'auth/invalid-app-credential':
-      return {
-        code,
-        message: 'reCAPTCHA app verification could not be validated for this domain. Please try again or check Authorized Domains.',
-        needsConsoleConfig: true,
-      };
-    case 'auth/captcha-check-failed':
-      return {
-        code,
-        message: 'reCAPTCHA verification failed or expired. Please try sending the OTP again.',
-      };
-    case 'auth/emulator-config-failed':
-      return {
-        code,
-        message: 'Firebase Auth Emulator configuration failed. Verify VITE_FIREBASE_AUTH_EMULATOR_URL and restart the dev server.',
       };
     case 'auth/network-request-failed':
-      if (isAuthEmulatorEnabled) {
-        return {
-          code,
-          message: `Cannot reach local Firebase Auth Emulator at ${authEmulatorUrl}. Start it with: npm run emulators:auth`,
-        };
-      }
       return {
         code,
-        message: 'Network error while contacting Firebase Authentication. Check your connection and retry.',
+        message: 'Network error while contacting Google / Firebase Authentication. Check your connection and retry.',
       };
-    case 'auth/internal-error':
+    case 'auth/user-disabled':
       return {
         code,
-        message: 'Authentication security check encountered an error. Please try sending the OTP again.',
+        message: 'This Google account has been disabled. Please contact support.',
       };
-    case 'auth/popup-closed-by-user':
-      return { code, message: 'Sign-in window was closed before completion.' };
     default:
       return {
         code,
-        message: errorObj?.message || 'Authentication failed. Please try again.',
+        message: errorObj?.message || 'Google authentication failed. Please try again.',
       };
   }
 }
 
-interface ManagedRecaptchaState {
-  verifier: RecaptchaVerifier | null;
-  hostEl: HTMLElement | null;
-  slotEl: HTMLElement | null;
-  widgetId: number | null;
-  expired: boolean;
-  destroyed: boolean;
-  initPromise: Promise<RecaptchaVerifier> | null;
-}
-
-const recaptchaState: ManagedRecaptchaState = {
-  verifier: null,
-  hostEl: null,
-  slotEl: null,
-  widgetId: null,
-  expired: false,
-  destroyed: false,
-  initPromise: null,
-};
-
-export interface RecaptchaLifecycleCallbacks {
-  onExpired?: () => void;
-  onError?: () => void;
-}
-
-export function destroyActiveRecaptcha(hostEl?: HTMLElement | null): void {
-  const currentVerifier = recaptchaState.verifier;
-  const currentSlot = recaptchaState.slotEl;
-  const currentHost = hostEl ?? recaptchaState.hostEl;
-
-  recaptchaState.verifier = null;
-  recaptchaState.slotEl = null;
-  recaptchaState.hostEl = null;
-  recaptchaState.widgetId = null;
-  recaptchaState.expired = false;
-  recaptchaState.destroyed = true;
-  recaptchaState.initPromise = null;
-
-  if (currentVerifier) {
-    try {
-      currentVerifier.clear();
-    } catch {
-      // Ignore if Firebase already cleared or destroyed this verifier
-    }
-  }
-
-  if (currentSlot && currentSlot.parentNode) {
-    try {
-      currentSlot.parentNode.removeChild(currentSlot);
-    } catch {
-      // Ignore detached DOM errors
-    }
-  }
-
-  if (currentHost) {
-    try {
-      currentHost.replaceChildren();
-    } catch {
-      // Ignore if host already unmounted
-    }
-  }
-}
-
-export async function ensureRecaptchaVerifier(
-  hostEl: HTMLElement | null,
-  callbacks?: RecaptchaLifecycleCallbacks
-): Promise<RecaptchaVerifier> {
-  if (!hostEl || !hostEl.isConnected) {
-    throw new Error('reCAPTCHA container is not mounted in the DOM.');
-  }
-
-  // Reuse existing active verifier when it belongs to the same mounted host and has not expired
-  if (
-    recaptchaState.verifier &&
-    !recaptchaState.destroyed &&
-    !recaptchaState.expired &&
-    recaptchaState.hostEl === hostEl &&
-    recaptchaState.slotEl?.isConnected
-  ) {
-    return recaptchaState.verifier;
-  }
-
-  // Deduplicate concurrent initialization calls for the same mounted host
-  if (recaptchaState.initPromise && recaptchaState.hostEl === hostEl) {
-    return recaptchaState.initPromise;
-  }
-
-  // Cleanly tear down any previous/expired verifier and clear old DOM slot before creating a new one
-  destroyActiveRecaptcha(hostEl);
-
-  const slotEl = document.createElement('div');
-  slotEl.setAttribute('data-vyro-recaptcha-slot', 'active');
-  hostEl.replaceChildren(slotEl);
-
-  recaptchaState.hostEl = hostEl;
-  recaptchaState.slotEl = slotEl;
-  recaptchaState.destroyed = false;
-  recaptchaState.expired = false;
-
-  const verifier = new RecaptchaVerifier(auth, slotEl, {
-    size: 'invisible',
-    'expired-callback': () => {
-      recaptchaState.expired = true;
-      // Safely reset widget if available, or allow clean rebuild on next OTP send
-      const grecaptcha = (window as unknown as { grecaptcha?: { reset?: (id?: number) => void } }).grecaptcha;
-      if (grecaptcha?.reset && recaptchaState.widgetId !== null) {
-        try {
-          grecaptcha.reset(recaptchaState.widgetId);
-          recaptchaState.expired = false;
-        } catch {
-          destroyActiveRecaptcha(recaptchaState.hostEl);
-        }
-      } else {
-        destroyActiveRecaptcha(recaptchaState.hostEl);
-      }
-      callbacks?.onExpired?.();
-    },
-    'error-callback': () => {
-      destroyActiveRecaptcha(recaptchaState.hostEl);
-      callbacks?.onError?.();
-    },
-  });
-
-  recaptchaState.verifier = verifier;
-
-  const promise = verifier
-    .render()
-    .then((widgetId) => {
-      // If component unmounted or reset while render() was resolving, discard cleanly
-      if (recaptchaState.verifier !== verifier || !hostEl.isConnected || !slotEl.isConnected) {
-        try {
-          verifier.clear();
-        } catch {
-          // Ignore
-        }
-        throw new Error('reCAPTCHA initialization cancelled because container unmounted.');
-      }
-      recaptchaState.widgetId = widgetId;
-      recaptchaState.initPromise = null;
-      return verifier;
-    })
-    .catch((err) => {
-      if (recaptchaState.verifier === verifier) {
-        destroyActiveRecaptcha(hostEl);
-      }
-      throw err;
-    });
-
-  recaptchaState.initPromise = promise;
-  return promise;
-}
-
-export async function sendPhoneOtp(
-  e164Phone: string,
-  verifier: RecaptchaVerifier
-): Promise<ConfirmationResult> {
-  return signInWithPhoneNumber(auth, e164Phone, verifier);
-}
-
-export async function verifyPhoneOtp(
-  confirmationResult: ConfirmationResult,
-  otpCode: string
-): Promise<User> {
-  const cred = await confirmationResult.confirm(otpCode);
-  return cred.user;
-}
-
-export async function signInWithGoogleFallback(): Promise<User> {
+export async function signInWithGoogle(): Promise<User> {
   const cred = await signInWithPopup(auth, googleAuthProvider);
   return cred.user;
 }
@@ -400,6 +178,53 @@ export async function fetchUserAccount(uid: string): Promise<FullUserAccount | n
   };
 }
 
+/**
+ * Checks Firestore for an existing profile; if none exists, creates the initial profile
+ * permanently bound to the user's selected role. Never alters an existing user's role.
+ */
+export async function ensureInitialProfileForNewUser(
+  user: User,
+  selectedRole: UserRole
+): Promise<FullUserAccount> {
+  const existing = await fetchUserAccount(user.uid);
+  if (existing) {
+    return existing;
+  }
+
+  const rawName = (user.displayName || user.email?.split('@')[0] || 'VYRO Merchant').trim();
+  const fullName = (rawName.length >= 2 ? rawName : 'VYRO Merchant').slice(0, 120);
+  const email = (user.email || '').trim().slice(0, 160);
+  if (email.length < 3) {
+    throw new Error('Your Google account did not return a verified email address.');
+  }
+
+  const profileRef = doc(db, 'profiles', user.uid);
+  const newProfile: ProfileRecord = {
+    uid: user.uid,
+    role: selectedRole,
+    fullName,
+    email,
+    ...(user.photoURL && user.photoURL.length <= 500000 ? { photoUrl: user.photoURL } : {}),
+    onboardingCompleted: false,
+    onboardingStep: 1,
+    accountStatus: 'active',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  try {
+    await setDoc(profileRef, newProfile);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, profileRef.path);
+  }
+
+  const created = await fetchUserAccount(user.uid);
+  if (!created) {
+    throw new Error('Could not initialize your VYRO profile in Firestore.');
+  }
+  return created;
+}
+
 export async function saveStep1Personal(
   user: User,
   role: UserRole,
@@ -407,37 +232,16 @@ export async function saveStep1Personal(
   existingProfile: ProfileRecord | null
 ): Promise<ProfileRecord> {
   const uid = user.uid;
-  const phoneNumber = (user.phoneNumber || draft.phoneNumber).trim();
-  const phoneHash = await sha256Hex(phoneNumber);
-
-  // Check phone uniqueness before creating profile if new
-  if (!existingProfile) {
-    const regRef = doc(db, 'phone_registry', phoneHash);
-    try {
-      const regSnap = await getDoc(regRef);
-      if (regSnap.exists() && regSnap.data().uid !== uid) {
-        throw new Error('This mobile number is already registered with another VYRO account.');
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('already registered')) {
-        throw err;
-      }
-      // Permission denied on get means another user owns this phone_registry document
-      throw new Error('This mobile number is already registered to an existing VYRO business account.');
-    }
-  }
-
   const profileRef = doc(db, 'profiles', uid);
   const nextStep = existingProfile ? Math.max(existingProfile.onboardingStep, 2) : 2;
+  const normalizedEmail = (draft.email.trim() || user.email || '').slice(0, 160);
 
   if (!existingProfile) {
-    const batch = writeBatch(db);
     const newProfile: ProfileRecord = {
       uid,
       role,
-      phoneNumber,
-      fullName: draft.fullName.trim(),
-      email: draft.email.trim(),
+      fullName: draft.fullName.trim().slice(0, 120),
+      email: normalizedEmail,
       ...(draft.photoUrl ? { photoUrl: draft.photoUrl } : {}),
       ...(draft.dateOfBirth ? { dateOfBirth: draft.dateOfBirth } : {}),
       ...(draft.gender ? { gender: draft.gender } : {}),
@@ -447,47 +251,40 @@ export async function saveStep1Personal(
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-    batch.set(profileRef, newProfile);
-    batch.set(doc(db, 'phone_registry', phoneHash), {
-      phoneHash,
-      uid,
-      role,
-      createdAt: serverTimestamp(),
-    });
     try {
-      await batch.commit();
+      await setDoc(profileRef, newProfile);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, profileRef.path);
+      handleFirestoreError(err, OperationType.CREATE, profileRef.path);
     }
     return newProfile;
-  } else {
-    const updates: {
-      fullName: string;
-      email: string;
-      photoUrl: string;
-      dateOfBirth: string;
-      gender: ProfileRecord['gender'];
-      onboardingStep: number;
-      updatedAt: ReturnType<typeof serverTimestamp>;
-    } = {
-      fullName: draft.fullName.trim(),
-      email: draft.email.trim(),
-      photoUrl: draft.photoUrl || '',
-      dateOfBirth: draft.dateOfBirth || '',
-      gender: draft.gender || '',
-      onboardingStep: nextStep,
-      updatedAt: serverTimestamp(),
-    };
-    try {
-      await updateDoc(profileRef, updates);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, profileRef.path);
-    }
-    return {
-      ...existingProfile,
-      ...updates,
-    };
   }
+
+  const updates: {
+    fullName: string;
+    email: string;
+    photoUrl: string;
+    dateOfBirth: string;
+    gender: ProfileRecord['gender'];
+    onboardingStep: number;
+    updatedAt: ReturnType<typeof serverTimestamp>;
+  } = {
+    fullName: draft.fullName.trim().slice(0, 120),
+    email: normalizedEmail,
+    photoUrl: draft.photoUrl || '',
+    dateOfBirth: draft.dateOfBirth || '',
+    gender: draft.gender || '',
+    onboardingStep: nextStep,
+    updatedAt: serverTimestamp(),
+  };
+  try {
+    await updateDoc(profileRef, updates);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, profileRef.path);
+  }
+  return {
+    ...existingProfile,
+    ...updates,
+  };
 }
 
 export async function saveStep2Business(
@@ -766,8 +563,7 @@ export async function completeStep5Registration(
   await validateOnboardingWithBackend(user, {
     role,
     fullName: draft.fullName,
-    phoneNumber: user.phoneNumber || draft.phoneNumber,
-    email: draft.email,
+    email: draft.email || user.email,
     businessName: draft.businessName,
     gstin: draft.gstin,
     bankIfsc: draft.includeBankDetails ? draft.bankIfsc : '',
@@ -794,7 +590,7 @@ export async function completeStep5Registration(
     batch.set(prefRef, {
       uid,
       whatsappAlerts: true,
-      smsOrderAlerts: true,
+      smsOrderAlerts: false,
       emailInvoices: true,
       lowStockThresholdDefault: 15,
       language: 'English (India)',
@@ -908,9 +704,9 @@ export function clearPendingAuthRole(): void {
 }
 
 /**
- * Shared post-authentication check used identically by both Phone OTP and Google Sign-In:
+ * Shared post-Google-Sign-In verification:
  * 1. Verifies Firebase ID token with VYRO backend (/api/auth/verify-session)
- * 2. Loads user profile & business registration state from Firestore
+ * 2. Loads existing user profile & registration status from Firestore
  */
 export async function resolveAuthenticatedAccount(
   user: User

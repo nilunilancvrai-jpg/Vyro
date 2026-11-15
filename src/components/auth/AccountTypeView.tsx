@@ -135,11 +135,11 @@ export const AccountTypeView: React.FC<AccountTypeViewProps> = ({
 
           <button
             type="button"
-            id="continue-to-mobile-btn"
+            id="continue-to-google-btn"
             onClick={() => onSelectRole(selected)}
             className="px-6 py-3 bg-[#102A56] hover:bg-[#1769E0] text-white text-sm font-bold rounded-xl transition-colors inline-flex items-center gap-2 cursor-pointer"
           >
-            <span>Continue with Mobile</span>
+            <span>Continue with Google</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
