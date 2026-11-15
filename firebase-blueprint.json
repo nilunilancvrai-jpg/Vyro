@@ -1,0 +1,223 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "User Profile",
+      "description": "Core authenticated user profile with permanently assigned B2B role and onboarding progress.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "role": { "type": "string", "enum": ["retailer", "wholesaler"] },
+        "phoneNumber": { "type": "string", "minLength": 10, "maxLength": 20, "pattern": "^\\+[1-9][0-9]{7,14}$" },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 160 },
+        "photoUrl": { "type": "string", "maxLength": 500000 },
+        "dateOfBirth": { "type": "string", "maxLength": 20 },
+        "gender": { "type": "string", "enum": ["", "male", "female", "other", "prefer_not_to_say"] },
+        "onboardingCompleted": { "type": "boolean" },
+        "onboardingStep": { "type": "integer" },
+        "accountStatus": { "type": "string", "enum": ["active", "pending_deletion"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "role",
+        "phoneNumber",
+        "fullName",
+        "email",
+        "onboardingCompleted",
+        "onboardingStep",
+        "accountStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PhoneRegistry": {
+      "title": "Phone Registry",
+      "description": "Unique mapping from SHA-256 hashed mobile number to Firebase UID to prevent duplicate accounts.",
+      "type": "object",
+      "properties": {
+        "phoneHash": { "type": "string", "minLength": 16, "maxLength": 128 },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "role": { "type": "string", "enum": ["retailer", "wholesaler"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["phoneHash", "uid", "role", "createdAt"]
+    },
+    "Business": {
+      "title": "Business Profile",
+      "description": "Role-specific wholesaler or retailer business registration details.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "role": { "type": "string", "enum": ["retailer", "wholesaler"] },
+        "businessName": { "type": "string", "minLength": 2, "maxLength": 160 },
+        "businessType": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "businessCategory": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "gstin": { "type": "string", "maxLength": 15 },
+        "registrationNumber": { "type": "string", "maxLength": 60 },
+        "apmcLicense": { "type": "string", "maxLength": 60 },
+        "logoUrl": { "type": "string", "maxLength": 500000 },
+        "facilityPhotoUrl": { "type": "string", "maxLength": 500000 },
+        "bankAccountHolder": { "type": "string", "maxLength": 120 },
+        "bankAccountLast4": { "type": "string", "maxLength": 4 },
+        "bankIfsc": { "type": "string", "maxLength": 11 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "role",
+        "businessName",
+        "businessType",
+        "businessCategory",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "BusinessAddress": {
+      "title": "Business Address",
+      "description": "Residential, shop/business, and optional warehouse Indian address records.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "residentialCountry": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "residentialState": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "residentialDistrict": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "residentialCity": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "residentialLocality": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "residentialStreet": { "type": "string", "minLength": 2, "maxLength": 240 },
+        "residentialPincode": { "type": "string", "minLength": 6, "maxLength": 6, "pattern": "^[1-9][0-9]{5}$" },
+        "businessSameAsResidential": { "type": "boolean" },
+        "businessCountry": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "businessState": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "businessDistrict": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "businessCity": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "businessLocality": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "businessStreet": { "type": "string", "minLength": 2, "maxLength": 240 },
+        "businessPincode": { "type": "string", "minLength": 6, "maxLength": 6, "pattern": "^[1-9][0-9]{5}$" },
+        "warehouseSameAsBusiness": { "type": "boolean" },
+        "warehouseStreet": { "type": "string", "maxLength": 240 },
+        "warehouseCity": { "type": "string", "maxLength": 80 },
+        "warehouseState": { "type": "string", "maxLength": 80 },
+        "warehousePincode": { "type": "string", "maxLength": 6 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "residentialCountry",
+        "residentialState",
+        "residentialDistrict",
+        "residentialCity",
+        "residentialLocality",
+        "residentialStreet",
+        "residentialPincode",
+        "businessSameAsResidential",
+        "businessCountry",
+        "businessState",
+        "businessDistrict",
+        "businessCity",
+        "businessLocality",
+        "businessStreet",
+        "businessPincode",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "BusinessVerification": {
+      "title": "Business Verification",
+      "description": "Masked tax/PAN metadata and optional authorized Aadhaar consent status. Raw PAN/Aadhaar are never exposed.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "panProvided": { "type": "boolean" },
+        "panMasked": { "type": "string", "maxLength": 16 },
+        "panHash": { "type": "string", "maxLength": 128 },
+        "panPurposeConsent": { "type": "boolean" },
+        "aadhaarMethod": { "type": "string", "enum": ["none", "digilocker_consent", "offline_xml_consent"] },
+        "aadhaarConsent": { "type": "boolean" },
+        "aadhaarVerified": { "type": "boolean" },
+        "kycStatus": { "type": "string", "enum": ["unverified", "pending_review", "verified"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "panProvided",
+        "panPurposeConsent",
+        "aadhaarMethod",
+        "aadhaarConsent",
+        "aadhaarVerified",
+        "kycStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserPreference": {
+      "title": "User Preferences",
+      "description": "Notification and operational preferences for authenticated business owners.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "whatsappAlerts": { "type": "boolean" },
+        "smsOrderAlerts": { "type": "boolean" },
+        "emailInvoices": { "type": "boolean" },
+        "lowStockThresholdDefault": { "type": "integer" },
+        "language": { "type": "string", "maxLength": 24 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "whatsappAlerts",
+        "smsOrderAlerts",
+        "emailInvoices",
+        "lowStockThresholdDefault",
+        "language",
+        "updatedAt"
+      ]
+    },
+    "DeletionRequest": {
+      "title": "Account Deletion Request",
+      "description": "Audit record when a user requests deletion of their VYRO account.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "reason": { "type": "string", "minLength": 3, "maxLength": 500 },
+        "status": { "type": "string", "enum": ["requested", "cancelled"] },
+        "requestedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "reason", "status", "requestedAt"]
+    }
+  },
+  "firestore": {
+    "/profiles/{uid}": {
+      "schema": { "$ref": "#/entities/Profile" },
+      "description": "Private user profile with permanent account role."
+    },
+    "/phone_registry/{phoneHash}": {
+      "schema": { "$ref": "#/entities/PhoneRegistry" },
+      "description": "Unique verified mobile number hash mapping to prevent duplicate accounts."
+    },
+    "/businesses/{uid}": {
+      "schema": { "$ref": "#/entities/Business" },
+      "description": "Private wholesaler or retailer business details linked 1:1 to profile."
+    },
+    "/business_addresses/{uid}": {
+      "schema": { "$ref": "#/entities/BusinessAddress" },
+      "description": "Private residential, shop/business, and warehouse addresses."
+    },
+    "/business_verifications/{uid}": {
+      "schema": { "$ref": "#/entities/BusinessVerification" },
+      "description": "Private masked PAN and optional authorized Aadhaar verification metadata."
+    },
+    "/user_preferences/{uid}": {
+      "schema": { "$ref": "#/entities/UserPreference" },
+      "description": "Private notification and dashboard preferences."
+    },
+    "/deletion_requests/{uid}": {
+      "schema": { "$ref": "#/entities/DeletionRequest" },
+      "description": "Private user account deletion request log."
+    }
+  }
+}

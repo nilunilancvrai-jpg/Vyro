@@ -191,7 +191,7 @@ export const RetailerHome: React.FC<RetailerHomeProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-500">
-              Essential staples with proven retail demand in Bengaluru kiranas
+              Essential staples with proven retail demand in {retailer.city} kiranas
             </p>
           </div>
 
@@ -252,7 +252,7 @@ export const RetailerHome: React.FC<RetailerHomeProps> = ({
               </div>
               <div>
                 <h3 className="font-bold text-sm text-[#102A56]">Inventory Health</h3>
-                <p className="text-[11px] text-slate-400">Ramesh Stores Snapshot</p>
+                <p className="text-[11px] text-slate-400">{retailer.businessName} Snapshot</p>
               </div>
             </div>
 

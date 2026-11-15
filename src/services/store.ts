@@ -14,6 +14,7 @@ import {
   OrderStatus,
   PaymentMethod,
 } from '../types';
+import { FullUserAccount } from '../types/onboarding';
 
 // Default Profiles
 export const DEFAULT_RETAILER: UserProfile = {
@@ -920,11 +921,9 @@ class VyroStore {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        // Ensure auth fields exist
-        if (typeof parsed.isAuthenticated !== 'boolean') {
-          parsed.isAuthenticated = false;
-          parsed.currentUser = null;
-        }
+        // Never trust persisted localStorage auth state; real authentication must come from Firebase Auth + Firestore
+        parsed.isAuthenticated = false;
+        parsed.currentUser = null;
         // Ensure products have costPrice
         if (Array.isArray(parsed.products)) {
           parsed.products = parsed.products.map((p: Product) => {
@@ -963,7 +962,13 @@ class VyroStore {
 
   private saveToStorage() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      // Persist catalog/orders/inventory locally, but never persist unverified auth flags
+      const sanitizedState: VyroStoreState = {
+        ...this.state,
+        isAuthenticated: false,
+        currentUser: null,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitizedState));
     } catch {
       // Storage full or restricted
     }
@@ -1003,15 +1008,58 @@ class VyroStore {
     this.notify();
   }
 
-  // Authentication Management
-  public login(emailOrId: string, role: UserRole) {
+  // Authentication state must only be populated via syncAuthenticatedAccount() after Firebase + Firestore verification
+  public syncAuthenticatedAccount(account: FullUserAccount) {
+    const { profile, business, address } = account;
+    const role = profile.role;
+    const formattedAddress = address
+      ? [
+          address.businessStreet,
+          address.businessLocality,
+          address.businessCity,
+          address.businessDistrict,
+          address.businessState,
+          address.businessPincode,
+        ]
+          .filter(Boolean)
+          .join(', ')
+      : '';
+
+    if (role === 'retailer') {
+      this.state.retailerProfile = {
+        ...this.state.retailerProfile,
+        name: profile.fullName,
+        businessName: business?.businessName || this.state.retailerProfile.businessName,
+        phone: profile.phoneNumber,
+        email: profile.email,
+        city: address?.businessCity || this.state.retailerProfile.city,
+        state: address?.businessState || this.state.retailerProfile.state,
+        gstin: business?.gstin || 'Unregistered / Composition',
+        address: formattedAddress || this.state.retailerProfile.address,
+        avatar: business?.logoUrl || profile.photoUrl || undefined,
+      };
+    } else {
+      this.state.wholesalerProfile = {
+        ...this.state.wholesalerProfile,
+        name: profile.fullName,
+        businessName: business?.businessName || this.state.wholesalerProfile.businessName,
+        phone: profile.phoneNumber,
+        email: profile.email,
+        city: address?.businessCity || this.state.wholesalerProfile.city,
+        state: address?.businessState || this.state.wholesalerProfile.state,
+        gstin: business?.gstin || 'Unregistered / Composition',
+        address: formattedAddress || this.state.wholesalerProfile.address,
+        avatar: business?.logoUrl || profile.photoUrl || undefined,
+      };
+    }
+
     this.state.isAuthenticated = true;
     this.state.currentRole = role;
     this.state.currentUser = {
-      emailOrId,
+      emailOrId: profile.uid,
       role,
-      name: role === 'retailer' ? this.state.retailerProfile.name : this.state.wholesalerProfile.name,
-      businessName: role === 'retailer' ? this.state.retailerProfile.businessName : this.state.wholesalerProfile.businessName,
+      name: profile.fullName,
+      businessName: business?.businessName || profile.fullName,
       loginTime: new Date().toISOString(),
     };
     this.notify();

@@ -1,5 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { Loader2 } from 'lucide-react';
 import { vyroStore } from './services/store';
+import { auth, testFirestoreConnection } from './lib/firebase';
+import {
+  clearPendingAuthRole,
+  resolveAuthenticatedAccount,
+  signOutAccount,
+} from './services/authService';
+import { FullUserAccount } from './types/onboarding';
 import { Header } from './components/common/Header';
 import { Sidebar } from './components/common/Sidebar';
 import { MobileNav } from './components/common/MobileNav';
@@ -18,14 +27,64 @@ import { WholesalerOrdersView } from './components/wholesaler/WholesalerOrdersVi
 import { WholesalerProductsView } from './components/wholesaler/WholesalerProductsView';
 import { WholesalerAnalyticsView } from './components/wholesaler/WholesalerAnalyticsView';
 import { AddProductModal } from './components/wholesaler/AddProductModal';
-import { LoginPage } from './components/auth/LoginPage';
-import { Product, Order, UserRole } from './types';
+import { AuthFlow } from './components/auth/AuthFlow';
+import { ProfileSettingsView } from './components/account/ProfileSettingsView';
+import { Product, Order } from './types';
+
+const PUBLIC_AUTH_ROUTES = new Set(['/', '/welcome', '/role-selection', '/login', '/auth', '/onboarding']);
+
+const VALID_RETAILER_ROUTES = new Set([
+  '/retailer',
+  '/retailer/home',
+  '/retailer/marketplace',
+  '/retailer/categories',
+  '/retailer/orders',
+  '/retailer/inventory',
+  '/retailer/sales',
+  '/retailer/ai-insights',
+  '/retailer/account',
+]);
+
+const VALID_WHOLESALER_ROUTES = new Set([
+  '/wholesaler',
+  '/wholesaler/dashboard',
+  '/wholesaler/orders',
+  '/wholesaler/products',
+  '/wholesaler/inventory',
+  '/wholesaler/analytics',
+  '/wholesaler/sales',
+  '/wholesaler/ai-insights',
+  '/wholesaler/account',
+]);
+
+function normalizePath(pathname: string): string {
+  const cleaned = pathname.replace(/\/+$/, '') || '/';
+  return cleaned === '/' ? '/welcome' : cleaned;
+}
+
+function syncBrowserUrl(route: string, replace = false): void {
+  if (typeof window === 'undefined') return;
+  const normalized = normalizePath(route);
+  if (normalizePath(window.location.pathname) === normalized) return;
+  if (replace) {
+    window.history.replaceState(null, '', normalized);
+  } else {
+    window.history.pushState(null, '', normalized);
+  }
+}
 
 export default function App() {
   const [storeState, setStoreState] = useState(vyroStore.getState());
-  const [currentRoute, setCurrentRoute] = useState<string>(
-    storeState.currentRole === 'wholesaler' ? '/wholesaler' : '/retailer'
-  );
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [userAccount, setUserAccount] = useState<FullUserAccount | null>(null);
+  const userAccountRef = useRef<FullUserAccount | null>(null);
+  const [authChecking, setAuthChecking] = useState<boolean>(true);
+  const [currentRoute, setCurrentRoute] = useState<string>(() => {
+    if (typeof window === 'undefined') return '/welcome';
+    // Never initialize directly into a dashboard route before Firebase authentication resolves
+    const path = normalizePath(window.location.pathname);
+    return PUBLIC_AUTH_ROUTES.has(path) ? path : '/welcome';
+  });
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
@@ -36,27 +95,108 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = vyroStore.subscribe(() => {
+    const unsubscribeStore = vyroStore.subscribe(() => {
       setStoreState(vyroStore.getState());
     });
-    return unsubscribe;
+
+    void testFirestoreConnection();
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        userAccountRef.current = null;
+        setFirebaseUser(null);
+        setUserAccount(null);
+        vyroStore.logout();
+        setCurrentRoute('/welcome');
+        syncBrowserUrl('/welcome', true);
+        setAuthChecking(false);
+        return;
+      }
+
+      try {
+        const account = await resolveAuthenticatedAccount(user);
+        userAccountRef.current = account;
+        setFirebaseUser(user);
+        setUserAccount(account);
+
+        if (account && account.profile.onboardingCompleted) {
+          clearPendingAuthRole();
+          vyroStore.syncAuthenticatedAccount(account);
+          const roleHome = account.profile.role === 'wholesaler' ? '/wholesaler' : '/retailer';
+          const requestedPath = normalizePath(window.location.pathname);
+          const isAllowedPath =
+            account.profile.role === 'wholesaler'
+              ? VALID_WHOLESALER_ROUTES.has(requestedPath)
+              : VALID_RETAILER_ROUTES.has(requestedPath);
+
+          const nextRoute = isAllowedPath ? requestedPath : roleHome;
+          setCurrentRoute(nextRoute);
+          syncBrowserUrl(nextRoute, true);
+        } else {
+          vyroStore.logout();
+          setCurrentRoute('/onboarding');
+          syncBrowserUrl('/onboarding', true);
+        }
+      } catch {
+        userAccountRef.current = null;
+        setFirebaseUser(null);
+        setUserAccount(null);
+        vyroStore.logout();
+        setCurrentRoute('/welcome');
+        syncBrowserUrl('/welcome', true);
+      } finally {
+        setAuthChecking(false);
+      }
+    });
+
+    const handlePopState = () => {
+      const requested = normalizePath(window.location.pathname);
+      const currentUser = auth.currentUser;
+      const latestAccount = userAccountRef.current;
+      setCurrentRoute((prev) => {
+        if (!currentUser || !latestAccount?.profile.onboardingCompleted) {
+          syncBrowserUrl('/welcome', true);
+          return '/welcome';
+        }
+        const role = latestAccount.profile.role;
+        const validSet = role === 'wholesaler' ? VALID_WHOLESALER_ROUTES : VALID_RETAILER_ROUTES;
+        if (!validSet.has(requested)) {
+          const fallback = role === 'wholesaler' ? '/wholesaler' : '/retailer';
+          syncBrowserUrl(fallback, true);
+          return fallback;
+        }
+        return requested || prev;
+      });
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      unsubscribeStore();
+      unsubscribeAuth();
+      window.removeEventListener('popstate', handlePopState);
+    };
   }, []);
 
+  const isFullyAuthenticated = Boolean(
+    firebaseUser && userAccount && userAccount.profile.onboardingCompleted
+  );
   const cartCount = Object.values(storeState.cart).reduce((sum, qty) => sum + qty, 0);
+  const activeRole = userAccount?.profile.role || storeState.currentRole;
 
   const handleNavigate = (route: string) => {
-    // If navigating to role selection or login page
-    if (route === '/role-selection' || route === '/login') {
-      setCurrentRoute(route);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Route guard: block all dashboard navigation if not authenticated and onboarded
+    if (!isFullyAuthenticated) {
+      setCurrentRoute('/welcome');
+      syncBrowserUrl('/welcome', true);
       return;
     }
 
-    // Strictly enforce role isolation: users cannot cross between Retailer and Wholesaler without signing out
-    if (storeState.currentRole === 'wholesaler' && route.startsWith('/retailer')) {
+    // Strictly enforce permanent backend role isolation: users cannot cross between Retailer and Wholesaler
+    if (activeRole === 'wholesaler' && !VALID_WHOLESALER_ROUTES.has(route)) {
       return;
     }
-    if (storeState.currentRole === 'retailer' && route.startsWith('/wholesaler')) {
+    if (activeRole === 'retailer' && route !== '/retailer/cart' && !VALID_RETAILER_ROUTES.has(route)) {
       return;
     }
     if (route === '/retailer/cart') {
@@ -64,6 +204,7 @@ export default function App() {
       return;
     }
     setCurrentRoute(route);
+    syncBrowserUrl(route, false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -74,57 +215,84 @@ export default function App() {
     }
   };
 
-  // Role-based redirection handler:
-  // If user selects Retailer: Redirect to the existing Retailer Dashboard/Home route ('/retailer').
-  // If user selects Wholesaler: Redirect to the existing Wholesaler Dashboard route ('/wholesaler').
-  const handleLoginSuccess = (selectedRole: UserRole, targetRoute?: string) => {
-    const route = targetRoute || (selectedRole === 'retailer' ? '/retailer' : '/wholesaler');
-    vyroStore.setRole(selectedRole);
-    setCurrentRoute(route);
+  const handleAuthComplete = (user: User, account: FullUserAccount) => {
+    clearPendingAuthRole();
+    userAccountRef.current = account;
+    setFirebaseUser(user);
+    setUserAccount(account);
+    vyroStore.syncAuthenticatedAccount(account);
+    const targetRoute = account.profile.role === 'wholesaler' ? '/wholesaler' : '/retailer';
+    setCurrentRoute(targetRoute);
+    syncBrowserUrl(targetRoute, true);
     setStoreState(vyroStore.getState());
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOutAccount();
+    userAccountRef.current = null;
     vyroStore.logout();
-    setCurrentRoute('/role-selection');
+    setFirebaseUser(null);
+    setUserAccount(null);
+    setCurrentRoute('/welcome');
+    syncBrowserUrl('/welcome', true);
     setStoreState(vyroStore.getState());
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // If user is not yet logged in or navigates to role-selection, render the clean VYRO Role Selection / Login Page
-  if (!storeState.isAuthenticated || currentRoute === '/role-selection' || currentRoute === '/login') {
-    return <LoginPage onLoginSuccess={handleLoginSuccess} onNavigate={handleNavigate} />;
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center p-6 font-['Plus_Jakarta_Sans',sans-serif]">
+        <Loader2 className="w-8 h-8 text-[#1769E0] animate-spin mb-3" />
+        <p className="text-sm font-bold text-[#102A56]">Loading VYRO Platform...</p>
+      </div>
+    );
+  }
+
+  // Protected Route Guard: require Firebase session + completed business registration
+  if (
+    !isFullyAuthenticated ||
+    !firebaseUser ||
+    !userAccount ||
+    PUBLIC_AUTH_ROUTES.has(currentRoute)
+  ) {
+    return (
+      <AuthFlow
+        existingFirebaseUser={firebaseUser}
+        existingAccount={userAccount}
+        onAuthComplete={handleAuthComplete}
+      />
+    );
   }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
       {/* Top Navigation Header */}
       <Header
-        currentRole={storeState.currentRole}
+        currentRole={activeRole}
         currentRoute={currentRoute}
         onNavigate={handleNavigate}
         cartCount={cartCount}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onOpenCart={() => setIsCartOpen(true)}
-        onLogout={handleLogout}
+        onLogout={() => void handleLogout()}
       />
 
       {/* Main Body Layout */}
       <div className="flex flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-24 md:pb-12 gap-6">
         {/* Desktop Sidebar Navigation */}
         <Sidebar
-          currentRole={storeState.currentRole}
+          currentRole={activeRole}
           currentRoute={currentRoute}
           onNavigate={handleNavigate}
           cartCount={cartCount}
-          onLogout={handleLogout}
+          onLogout={() => void handleLogout()}
         />
 
         {/* Dynamic Route Content */}
         <main className="flex-1 min-w-0">
-          {storeState.currentRole === 'retailer' ? (
+          {activeRole === 'retailer' ? (
             <>
               {(currentRoute === '/retailer' || currentRoute === '/retailer/home') && (
                 <RetailerHome
@@ -132,7 +300,7 @@ export default function App() {
                   onOpenProductDetails={(p) => setDetailProduct(p)}
                   onCategorySelect={(catId) => {
                     setSelectedCategory(catId);
-                    setCurrentRoute('/retailer/marketplace');
+                    handleNavigate('/retailer/marketplace');
                   }}
                   searchQuery={searchQuery}
                   onSearchChange={setSearchQuery}
@@ -153,21 +321,21 @@ export default function App() {
                 <CategoriesView
                   onCategorySelect={(catId) => {
                     setSelectedCategory(catId);
-                    setCurrentRoute('/retailer/marketplace');
+                    handleNavigate('/retailer/marketplace');
                   }}
-                  onNavigateToMarketplace={() => setCurrentRoute('/retailer/marketplace')}
+                  onNavigateToMarketplace={() => handleNavigate('/retailer/marketplace')}
                 />
               )}
 
               {currentRoute === '/retailer/orders' && (
                 <RetailerOrdersView
-                  onNavigateToMarketplace={() => setCurrentRoute('/retailer/marketplace')}
+                  onNavigateToMarketplace={() => handleNavigate('/retailer/marketplace')}
                 />
               )}
 
               {currentRoute === '/retailer/inventory' && (
                 <RetailerInventoryView
-                  onNavigateToMarketplace={() => setCurrentRoute('/retailer/marketplace')}
+                  onNavigateToMarketplace={() => handleNavigate('/retailer/marketplace')}
                   onOpenProductDetailsById={handleOpenProductDetailsById}
                 />
               )}
@@ -176,49 +344,23 @@ export default function App() {
 
               {currentRoute === '/retailer/ai-insights' && (
                 <RetailerAIInsightsView
-                  onNavigateToMarketplace={() => setCurrentRoute('/retailer/marketplace')}
-                  onNavigateToInventory={() => setCurrentRoute('/retailer/inventory')}
+                  onNavigateToMarketplace={() => handleNavigate('/retailer/marketplace')}
+                  onNavigateToInventory={() => handleNavigate('/retailer/inventory')}
                   onOpenProductDetailsById={handleOpenProductDetailsById}
                 />
               )}
 
               {currentRoute === '/retailer/account' && (
-                <div className="bg-white rounded-3xl p-8 border border-slate-200/90 shadow-xs max-w-2xl">
-                  <h2 className="text-xl font-black text-[#102A56]">Retailer Store Profile</h2>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Store account and business details registered on VYRO
-                  </p>
-
-                  <div className="mt-6 space-y-4 text-xs">
-                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                      <span className="text-slate-400 block font-bold text-[10px] uppercase">Business Name</span>
-                      <span className="text-base font-extrabold text-[#102A56]">
-                        {storeState.retailerProfile.businessName}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                        <span className="text-slate-400 block font-bold text-[10px] uppercase">Proprietor Name</span>
-                        <span className="font-bold text-slate-900">{storeState.retailerProfile.name}</span>
-                      </div>
-                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                        <span className="text-slate-400 block font-bold text-[10px] uppercase">Contact Phone</span>
-                        <span className="font-bold text-slate-900">{storeState.retailerProfile.phone}</span>
-                      </div>
-                    </div>
-
-                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                      <span className="text-slate-400 block font-bold text-[10px] uppercase">GSTIN Registration</span>
-                      <span className="font-mono font-bold text-[#1769E0]">{storeState.retailerProfile.gstin}</span>
-                    </div>
-
-                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                      <span className="text-slate-400 block font-bold text-[10px] uppercase">Store Delivery Address</span>
-                      <span className="text-slate-800 font-medium">{storeState.retailerProfile.address}</span>
-                    </div>
-                  </div>
-                </div>
+                <ProfileSettingsView
+                  firebaseUser={firebaseUser}
+                  account={userAccount}
+                  onAccountUpdated={(updated) => {
+                    userAccountRef.current = updated;
+                    setUserAccount(updated);
+                    vyroStore.syncAuthenticatedAccount(updated);
+                  }}
+                  onLogout={handleLogout}
+                />
               )}
             </>
           ) : (
@@ -272,42 +414,16 @@ export default function App() {
               )}
 
               {currentRoute === '/wholesaler/account' && (
-                <div className="bg-white rounded-3xl p-8 border border-slate-200/90 shadow-xs max-w-2xl">
-                  <h2 className="text-xl font-black text-[#102A56]">Wholesaler Terminal Profile</h2>
-                  <p className="text-xs text-slate-500 mt-1">
-                    APMC Yard distributor registration and warehouse credentials
-                  </p>
-
-                  <div className="mt-6 space-y-4 text-xs">
-                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                      <span className="text-slate-400 block font-bold text-[10px] uppercase">Business Name</span>
-                      <span className="text-base font-extrabold text-[#102A56]">
-                        {storeState.wholesalerProfile.businessName}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                        <span className="text-slate-400 block font-bold text-[10px] uppercase">Manager</span>
-                        <span className="font-bold text-slate-900">{storeState.wholesalerProfile.name}</span>
-                      </div>
-                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                        <span className="text-slate-400 block font-bold text-[10px] uppercase">Contact Phone</span>
-                        <span className="font-bold text-slate-900">{storeState.wholesalerProfile.phone}</span>
-                      </div>
-                    </div>
-
-                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                      <span className="text-slate-400 block font-bold text-[10px] uppercase">APMC & GSTIN</span>
-                      <span className="font-mono font-bold text-[#1769E0]">{storeState.wholesalerProfile.gstin}</span>
-                    </div>
-
-                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                      <span className="text-slate-400 block font-bold text-[10px] uppercase">Warehouse Terminal Address</span>
-                      <span className="text-slate-800 font-medium">{storeState.wholesalerProfile.address}</span>
-                    </div>
-                  </div>
-                </div>
+                <ProfileSettingsView
+                  firebaseUser={firebaseUser}
+                  account={userAccount}
+                  onAccountUpdated={(updated) => {
+                    userAccountRef.current = updated;
+                    setUserAccount(updated);
+                    vyroStore.syncAuthenticatedAccount(updated);
+                  }}
+                  onLogout={handleLogout}
+                />
               )}
             </>
           )}
@@ -316,7 +432,7 @@ export default function App() {
 
       {/* Mobile Bottom Navigation Bar */}
       <MobileNav
-        currentRole={storeState.currentRole}
+        currentRole={activeRole}
         currentRoute={currentRoute}
         onNavigate={handleNavigate}
         cartCount={cartCount}
@@ -332,7 +448,7 @@ export default function App() {
         }}
         onNavigateToMarketplace={() => {
           setIsCartOpen(false);
-          setCurrentRoute('/retailer/marketplace');
+          handleNavigate('/retailer/marketplace');
         }}
       />
 
@@ -341,7 +457,7 @@ export default function App() {
         onClose={() => setIsCheckoutOpen(false)}
         onOrderCompleted={(order: Order) => {
           setIsCheckoutOpen(false);
-          setCurrentRoute('/retailer/orders');
+          handleNavigate('/retailer/orders');
         }}
       />
 

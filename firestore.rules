@@ -1,0 +1,355 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core Security Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && (
+        request.auth.token.phone_number != null ||
+        request.auth.token.email_verified == true
+      );
+    }
+
+    function isOwner(uid) {
+      return isVerifiedUser() && request.auth.uid == uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidPincode(pin) {
+      return pin is string && pin.size() == 6 && pin.matches('^[1-9][0-9]{5}$');
+    }
+
+    // Entity Validation Blueprints
+    function isValidProfile(data, uid) {
+      return data.keys().hasAll([
+          'uid', 'role', 'phoneNumber', 'fullName', 'email',
+          'onboardingCompleted', 'onboardingStep', 'accountStatus',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'role', 'phoneNumber', 'fullName', 'email',
+          'photoUrl', 'dateOfBirth', 'gender',
+          'onboardingCompleted', 'onboardingStep', 'accountStatus',
+          'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == uid && data.uid == request.auth.uid
+        && data.role in ['retailer', 'wholesaler']
+        && data.phoneNumber is string && data.phoneNumber.size() >= 10 && data.phoneNumber.size() <= 20
+        && data.phoneNumber.matches('^\\+[1-9][0-9]{7,14}$')
+        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120
+        && data.email is string && data.email.size() <= 160
+        && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 500000))
+        && (!('dateOfBirth' in data) || (data.dateOfBirth is string && data.dateOfBirth.size() <= 20))
+        && (!('gender' in data) || (data.gender is string && data.gender in ['', 'male', 'female', 'other', 'prefer_not_to_say']))
+        && data.onboardingCompleted is bool
+        && data.onboardingStep is int && data.onboardingStep >= 1 && data.onboardingStep <= 5
+        && data.accountStatus in ['active', 'pending_deletion']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPhoneRegistry(data, phoneHash) {
+      return data.keys().hasAll(['phoneHash', 'uid', 'role', 'createdAt'])
+        && data.keys().hasOnly(['phoneHash', 'uid', 'role', 'createdAt'])
+        && data.phoneHash is string && data.phoneHash == phoneHash && data.phoneHash.size() >= 16 && data.phoneHash.size() <= 128
+        && data.uid is string && data.uid == request.auth.uid
+        && data.role in ['retailer', 'wholesaler']
+        && data.createdAt is timestamp;
+    }
+
+    function isValidBusiness(data, uid) {
+      return data.keys().hasAll([
+          'uid', 'role', 'businessName', 'businessType', 'businessCategory',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'role', 'businessName', 'businessType', 'businessCategory',
+          'gstin', 'registrationNumber', 'apmcLicense', 'logoUrl', 'facilityPhotoUrl',
+          'bankAccountHolder', 'bankAccountLast4', 'bankIfsc',
+          'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == uid && data.uid == request.auth.uid
+        && data.role in ['retailer', 'wholesaler']
+        && data.businessName is string && data.businessName.size() >= 2 && data.businessName.size() <= 160
+        && data.businessType is string && data.businessType.size() >= 2 && data.businessType.size() <= 80
+        && data.businessCategory is string && data.businessCategory.size() >= 2 && data.businessCategory.size() <= 80
+        && (!('gstin' in data) || (data.gstin is string && data.gstin.size() <= 15))
+        && (!('registrationNumber' in data) || (data.registrationNumber is string && data.registrationNumber.size() <= 60))
+        && (!('apmcLicense' in data) || (data.apmcLicense is string && data.apmcLicense.size() <= 60))
+        && (!('logoUrl' in data) || (data.logoUrl is string && data.logoUrl.size() <= 500000))
+        && (!('facilityPhotoUrl' in data) || (data.facilityPhotoUrl is string && data.facilityPhotoUrl.size() <= 500000))
+        && (!('bankAccountHolder' in data) || (data.bankAccountHolder is string && data.bankAccountHolder.size() <= 120))
+        && (!('bankAccountLast4' in data) || (data.bankAccountLast4 is string && data.bankAccountLast4.size() <= 4))
+        && (!('bankIfsc' in data) || (data.bankIfsc is string && data.bankIfsc.size() <= 11))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidBusinessAddress(data, uid) {
+      return data.keys().hasAll([
+          'uid', 'residentialCountry', 'residentialState', 'residentialDistrict',
+          'residentialCity', 'residentialLocality', 'residentialStreet', 'residentialPincode',
+          'businessSameAsResidential', 'businessCountry', 'businessState', 'businessDistrict',
+          'businessCity', 'businessLocality', 'businessStreet', 'businessPincode',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'residentialCountry', 'residentialState', 'residentialDistrict',
+          'residentialCity', 'residentialLocality', 'residentialStreet', 'residentialPincode',
+          'businessSameAsResidential', 'businessCountry', 'businessState', 'businessDistrict',
+          'businessCity', 'businessLocality', 'businessStreet', 'businessPincode',
+          'warehouseSameAsBusiness', 'warehouseStreet', 'warehouseCity', 'warehouseState', 'warehousePincode',
+          'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == uid && data.uid == request.auth.uid
+        && data.residentialCountry is string && data.residentialCountry.size() >= 2 && data.residentialCountry.size() <= 60
+        && data.residentialState is string && data.residentialState.size() >= 2 && data.residentialState.size() <= 80
+        && data.residentialDistrict is string && data.residentialDistrict.size() >= 2 && data.residentialDistrict.size() <= 80
+        && data.residentialCity is string && data.residentialCity.size() >= 2 && data.residentialCity.size() <= 80
+        && data.residentialLocality is string && data.residentialLocality.size() >= 1 && data.residentialLocality.size() <= 120
+        && data.residentialStreet is string && data.residentialStreet.size() >= 2 && data.residentialStreet.size() <= 240
+        && isValidPincode(data.residentialPincode)
+        && data.businessSameAsResidential is bool
+        && data.businessCountry is string && data.businessCountry.size() >= 2 && data.businessCountry.size() <= 60
+        && data.businessState is string && data.businessState.size() >= 2 && data.businessState.size() <= 80
+        && data.businessDistrict is string && data.businessDistrict.size() >= 2 && data.businessDistrict.size() <= 80
+        && data.businessCity is string && data.businessCity.size() >= 2 && data.businessCity.size() <= 80
+        && data.businessLocality is string && data.businessLocality.size() >= 1 && data.businessLocality.size() <= 120
+        && data.businessStreet is string && data.businessStreet.size() >= 2 && data.businessStreet.size() <= 240
+        && isValidPincode(data.businessPincode)
+        && (!('warehouseSameAsBusiness' in data) || data.warehouseSameAsBusiness is bool)
+        && (!('warehouseStreet' in data) || (data.warehouseStreet is string && data.warehouseStreet.size() <= 240))
+        && (!('warehouseCity' in data) || (data.warehouseCity is string && data.warehouseCity.size() <= 80))
+        && (!('warehouseState' in data) || (data.warehouseState is string && data.warehouseState.size() <= 80))
+        && (!('warehousePincode' in data) || (data.warehousePincode is string && (data.warehousePincode == '' || isValidPincode(data.warehousePincode))))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidBusinessVerification(data, uid) {
+      return data.keys().hasAll([
+          'uid', 'panProvided', 'panPurposeConsent',
+          'aadhaarMethod', 'aadhaarConsent', 'aadhaarVerified', 'kycStatus',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'panProvided', 'panMasked', 'panHash', 'panPurposeConsent',
+          'aadhaarMethod', 'aadhaarConsent', 'aadhaarVerified', 'kycStatus',
+          'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == uid && data.uid == request.auth.uid
+        && data.panProvided is bool
+        && (!('panMasked' in data) || (data.panMasked is string && data.panMasked.size() <= 16))
+        && (!('panHash' in data) || (data.panHash is string && data.panHash.size() <= 128))
+        && data.panPurposeConsent is bool
+        && data.aadhaarMethod in ['none', 'digilocker_consent', 'offline_xml_consent']
+        && data.aadhaarConsent is bool
+        && data.aadhaarVerified == false
+        && data.kycStatus in ['unverified', 'pending_review']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPreference(data, uid) {
+      return data.keys().hasAll([
+          'uid', 'whatsappAlerts', 'smsOrderAlerts', 'emailInvoices',
+          'lowStockThresholdDefault', 'language', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'whatsappAlerts', 'smsOrderAlerts', 'emailInvoices',
+          'lowStockThresholdDefault', 'language', 'updatedAt'
+        ])
+        && data.uid is string && data.uid == uid && data.uid == request.auth.uid
+        && data.whatsappAlerts is bool
+        && data.smsOrderAlerts is bool
+        && data.emailInvoices is bool
+        && data.lowStockThresholdDefault is int && data.lowStockThresholdDefault >= 1 && data.lowStockThresholdDefault <= 10000
+        && data.language is string && data.language.size() >= 2 && data.language.size() <= 24
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDeletionRequest(data, uid) {
+      return data.keys().hasAll(['uid', 'reason', 'status', 'requestedAt'])
+        && data.keys().hasOnly(['uid', 'reason', 'status', 'requestedAt'])
+        && data.uid is string && data.uid == uid && data.uid == request.auth.uid
+        && data.reason is string && data.reason.size() >= 3 && data.reason.size() <= 500
+        && data.status in ['requested', 'cancelled']
+        && data.requestedAt is timestamp;
+    }
+
+    // 1. User Profiles (Private PII + Permanent Role)
+    match /profiles/{uid} {
+      allow get: if isValidId(uid) && isOwner(uid);
+      allow list: if false;
+      allow create: if isValidId(uid)
+        && isOwner(uid)
+        && isValidProfile(incoming(), uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(uid)
+        && isOwner(uid)
+        && isValidProfile(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().role == existing().role
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (incoming().diff(existing()).affectedKeys().hasOnly([
+            'fullName', 'email', 'photoUrl', 'dateOfBirth', 'gender',
+            'onboardingCompleted', 'onboardingStep', 'updatedAt'
+          ])) ||
+          (existing().accountStatus == 'active'
+            && incoming().accountStatus == 'pending_deletion'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['accountStatus', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    // 2. Unique Phone Registry
+    match /phone_registry/{phoneHash} {
+      allow get: if isValidId(phoneHash)
+        && isVerifiedUser()
+        && (resource == null || resource.data.uid == request.auth.uid);
+      allow list: if false;
+      allow create: if isValidId(phoneHash)
+        && isVerifiedUser()
+        && isValidPhoneRegistry(incoming(), phoneHash)
+        && incoming().createdAt == request.time
+        && (
+          exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) ||
+          existsAfter(/databases/$(database)/documents/profiles/$(request.auth.uid))
+        );
+      allow update, delete: if false;
+    }
+
+    // 3. Businesses (1:1 Private Business Details)
+    match /businesses/{uid} {
+      allow get: if isValidId(uid) && isOwner(uid);
+      allow list: if false;
+      allow create: if isValidId(uid)
+        && isOwner(uid)
+        && isValidBusiness(incoming(), uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/profiles/$(uid))
+        && incoming().role == get(/databases/$(database)/documents/profiles/$(uid)).data.role;
+      allow update: if isValidId(uid)
+        && isOwner(uid)
+        && isValidBusiness(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().role == existing().role
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'businessName', 'businessType', 'businessCategory',
+          'gstin', 'registrationNumber', 'apmcLicense', 'logoUrl', 'facilityPhotoUrl',
+          'bankAccountHolder', 'bankAccountLast4', 'bankIfsc', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // 4. Business Addresses
+    match /business_addresses/{uid} {
+      allow get: if isValidId(uid) && isOwner(uid);
+      allow list: if false;
+      allow create: if isValidId(uid)
+        && isOwner(uid)
+        && isValidBusinessAddress(incoming(), uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/profiles/$(uid));
+      allow update: if isValidId(uid)
+        && isOwner(uid)
+        && isValidBusinessAddress(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'residentialCountry', 'residentialState', 'residentialDistrict',
+          'residentialCity', 'residentialLocality', 'residentialStreet', 'residentialPincode',
+          'businessSameAsResidential', 'businessCountry', 'businessState', 'businessDistrict',
+          'businessCity', 'businessLocality', 'businessStreet', 'businessPincode',
+          'warehouseSameAsBusiness', 'warehouseStreet', 'warehouseCity', 'warehouseState', 'warehousePincode',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // 5. Business Verifications (Masked PAN / Optional Authorized Aadhaar Consent)
+    match /business_verifications/{uid} {
+      allow get: if isValidId(uid) && isOwner(uid);
+      allow list: if false;
+      allow create: if isValidId(uid)
+        && isOwner(uid)
+        && isValidBusinessVerification(incoming(), uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/profiles/$(uid));
+      allow update: if isValidId(uid)
+        && isOwner(uid)
+        && isValidBusinessVerification(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'panProvided', 'panMasked', 'panHash', 'panPurposeConsent',
+          'aadhaarMethod', 'aadhaarConsent', 'kycStatus', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // 6. User Preferences
+    match /user_preferences/{uid} {
+      allow get: if isValidId(uid) && isOwner(uid);
+      allow list: if false;
+      allow create: if isValidId(uid)
+        && isOwner(uid)
+        && isValidUserPreference(incoming(), uid)
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/profiles/$(uid));
+      allow update: if isValidId(uid)
+        && isOwner(uid)
+        && isValidUserPreference(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'whatsappAlerts', 'smsOrderAlerts', 'emailInvoices',
+          'lowStockThresholdDefault', 'language', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // 7. Deletion Requests
+    match /deletion_requests/{uid} {
+      allow get: if isValidId(uid) && isOwner(uid);
+      allow list: if false;
+      allow create: if isValidId(uid)
+        && isOwner(uid)
+        && isValidDeletionRequest(incoming(), uid)
+        && incoming().status == 'requested'
+        && incoming().requestedAt == request.time
+        && exists(/databases/$(database)/documents/profiles/$(uid));
+      allow update, delete: if false;
+    }
+  }
+}

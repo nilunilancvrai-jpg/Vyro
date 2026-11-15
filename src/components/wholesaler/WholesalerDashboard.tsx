@@ -63,7 +63,7 @@ export const WholesalerDashboard: React.FC<WholesalerDashboardProps> = ({
           <div>
             <div className="inline-flex items-center gap-1.5 bg-white/15 backdrop-blur-md px-3 py-1 rounded-full text-xs font-semibold mb-2 border border-white/20">
               <Building2 className="w-3.5 h-3.5 text-[#F59E0B]" />
-              <span>{wholesaler.gstin} • APMC Yard, Yeshwanthpur</span>
+              <span>{wholesaler.gstin} • {wholesaler.city}, {wholesaler.state}</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
               {wholesaler.businessName}
@@ -246,7 +246,7 @@ export const WholesalerDashboard: React.FC<WholesalerDashboardProps> = ({
               <Building2 className="w-5 h-5 text-[#1769E0]" />
               <div>
                 <h3 className="font-bold text-sm text-[#102A56]">Fulfillment Hub</h3>
-                <p className="text-[10px] text-slate-400">APMC Yard Terminal 4</p>
+                <p className="text-[10px] text-slate-400">{wholesaler.city} Dispatch Center</p>
               </div>
             </div>
 

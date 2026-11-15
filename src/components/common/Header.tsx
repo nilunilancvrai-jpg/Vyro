@@ -179,6 +179,17 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
+          {/* Account & Profile Settings Shortcut */}
+          <button
+            type="button"
+            onClick={() => onNavigate(currentRole === 'retailer' ? '/retailer/account' : '/wholesaler/account')}
+            title="Profile & Business Settings"
+            className="p-2 rounded-lg text-slate-600 hover:text-[#1769E0] hover:bg-blue-50 transition-colors flex items-center gap-1.5"
+          >
+            <User className="w-4 h-4" />
+            <span className="hidden xl:inline text-xs font-bold">{currentProfile.name.split(' ')[0]}</span>
+          </button>
+
           {/* Reset Demo State Button */}
           <button
             onClick={() => setResetConfirm(true)}
